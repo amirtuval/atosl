@@ -29,6 +29,8 @@
 #include "subprograms.h"
 #include "common.h"
 
+#include <jansson.h>
+
 #define VERSION ATOSL_VERSION
 
 #define DWARF_ASSERT(ret, err) \
@@ -642,6 +644,53 @@ int find_and_print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
     return found ? DW_DLV_OK : DW_DLV_NO_ENTRY;
 }
 
+void print_all_symbols() {
+    json_t* array = json_array();
+
+    union {
+        struct nlist_t nlist32;
+        struct nlist_64 nlist64;
+    } nlist;
+    struct symbol_t *current;
+
+    int i;
+    int is_stab;
+    uint8_t type;
+
+    current = context.symlist;
+
+    for (i = 0; i < context.nsymbols; i++) {
+        json_t* o = json_object();
+
+        memcpy(context.is_64 ? (void*)&nlist.nlist64 : (void*)&nlist.nlist32, context.is_64 ? (void*)&current->sym.sym64 : (void*)&current->sym.sym32, context.is_64 ? sizeof(current->sym.sym64) : sizeof(current->sym.sym32));
+        current->thumb = ((context.is_64 ? nlist.nlist64.n_desc : nlist.nlist32.n_desc) & N_ARM_THUMB_DEF) ? 1 : 0;
+
+        current->addr = context.is_64 ? nlist.nlist64.n_value : nlist.nlist32.n_value;
+        type = context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type;
+        is_stab = type & N_STAB;
+        json_object_set(o, "name", json_string(current->name));
+
+        char* types = "";
+        if (is_stab)
+            types = "N_STAB";
+        if ((context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_PEXT)
+            types = "N_PEXT";
+        if ((context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_EXT)
+            types = "N_EXT";
+        json_object_set(o, "type", json_string(types));
+
+        json_object_set(o, "sect", json_integer(context.is_64 ? nlist.nlist64.n_sect : nlist.nlist32.n_sect));
+        json_object_set(o, "desc", json_integer(context.is_64 ? nlist.nlist64.n_desc : nlist.nlist32.n_desc));
+        json_object_set(o, "value", json_integer((unsigned long long)(context.is_64 ? nlist.nlist64.n_value : nlist.nlist32.n_value)));
+        json_object_set(o, "address", json_integer(current->addr));
+
+        json_array_append(array, o);
+        current++;
+    }
+
+    printf("%s\n", json_dumps(array, JSON_INDENT(2)));
+}
+
 int parse_command(
     dwarf_mach_object_access_internals_t *obj,
     struct load_command_t load_command)
@@ -1246,8 +1295,8 @@ int main(int argc, char *argv[]) {
     if (magic != MH_MAGIC && magic != MH_MAGIC_64)
       fatal("invalid magic for architecture");
 
-    if (argc <= optind)
-        fatal_usage("no addresses specified");
+    //if (argc <= optind)
+    //    fatal_usage("no addresses specified");
 
     dwarf_mach_object_access_init(fd, &binary_interface, &derr);
     assert(binary_interface);
@@ -1262,7 +1311,7 @@ int main(int argc, char *argv[]) {
 
     /* If there is dwarf info we'll use that to parse, otherwise we'll use the
      * symbol table */
-    if (context.is_dwarf && ret == DW_DLV_OK) {
+    if (context.is_dwarf && ret == DW_DLV_OK && argc > optind) {
 
         struct subprograms_options_t opts = {
             .persistent = options.use_cache,
@@ -1300,18 +1349,22 @@ int main(int argc, char *argv[]) {
         ret = dwarf_object_finish(dbg, &err);
         DWARF_ASSERT(ret, err);
     } else {
-        for (i = optind; i < argc; i++) {
-            Dwarf_Addr addr;
-            errno = 0;
-            addr = strtol(argv[i], (char **)NULL, 16);
-            if (errno != 0)
-                fatal("invalid address address: `%s': %s", optarg, strerror(errno));
-            ret = find_and_print_symtab_symbol(
-                    options.load_address - context.intended_addr,
-                    addr);
+        if (optind > argc) {
+            for (i = optind; i < argc; i++) {
+                Dwarf_Addr addr;
+                errno = 0;
+                addr = strtol(argv[i], (char **)NULL, 16);
+                if (errno != 0)
+                    fatal("invalid address address: `%s': %s", optarg, strerror(errno));
+                ret = find_and_print_symtab_symbol(
+                        options.load_address - context.intended_addr,
+                        addr);
 
-            if (ret != DW_DLV_OK)
-                printf("%s\n", argv[i]);
+                if (ret != DW_DLV_OK)
+                    printf("%s\n", argv[i]);
+            }
+        } else {
+            print_all_symbols();
         }
     }
 
