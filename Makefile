@@ -15,7 +15,7 @@ DIST := ${TARGET}-${VERSION}
 all:: ${TARGET}
 
 ${TARGET}: ${OBJS}
-	    ${CC} -o $@ $^ ${LDFLAGS} jansson/libjansson.a
+	    ${CC} -o $@ $^ ${LDFLAGS} jansson/libjansson.a -static 
 
 ${OBJS}: %.o: %.c %.dep ${HDRS} config.mk $(wildcard config.mk.local)
 	    ${CC} ${CFLAGS} -o $@ -c $<
