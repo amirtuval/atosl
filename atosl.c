@@ -57,7 +57,7 @@ _dwarf_decode_u_leb128(Dwarf_Small * leb128,
 
 static int debug = 0;
 
-static const char *shortopts = "vl:o:A:gcC:VhD";
+static const char *shortopts = "vl:o:A:gcC:VhD:L";
 static struct option longopts[] = {
     {"verbose", no_argument, NULL, 'v'},
     {"load-address", required_argument, NULL, 'l'},
@@ -69,6 +69,7 @@ static struct option longopts[] = {
     {"cache-dir", required_argument, NULL, 'C'},
     {"version", no_argument, NULL, 'V'},
     {"help", no_argument, NULL, 'h'},
+    {"print-archs", no_argument, NULL, 'L'},
     {NULL, 0, NULL, 0}
 };
 
@@ -109,6 +110,7 @@ static struct {
     cpu_subtype_t cpu_subtype;
     const char *cache_dir;
     int should_demangle;
+    int print_archs;
 } options = {
     .load_address = LONG_MAX,
     .use_globals = 0,
@@ -116,6 +118,7 @@ static struct {
     .cpu_type = CPU_TYPE_ARM,
     .cpu_subtype = CPU_SUBTYPE_ARM_V7S,
     .should_demangle = 1,
+    .print_archs = 0,
 };
 
 typedef int dwarf_mach_handle;
@@ -170,6 +173,8 @@ void print_help(void)
             "  -v, --verbose\t\t\tenable verbose (debug) messages\n");
     fprintf(stderr,
             "  -l, --load-address=ADDRESS\tspecify application load address\n");
+    fprintf(stderr,
+            "  -L, --print-archs\t\tOnly list available architectures\n");
     fprintf(stderr,
             "  -A, --arch=ARCH\t\tspecify architecture\n");
     fprintf(stderr,
@@ -1171,7 +1176,7 @@ int print_dwarf_symbol(Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
 int main(int argc, char *argv[]) {
     int fd;
     int ret;
-    int i;
+    int i, j;
     Dwarf_Debug dbg = NULL;
     Dwarf_Error err;
     int derr = 0;
@@ -1228,6 +1233,9 @@ int main(int argc, char *argv[]) {
             case 'D':
                 options.should_demangle = 0;
                 break;
+            case 'L':
+                options.print_archs = 1;    
+                break;
             case 'V':
                 fprintf(stderr, "atosl %s\n", VERSION);
                 exit(EXIT_SUCCESS);
@@ -1255,6 +1263,11 @@ int main(int argc, char *argv[]) {
     if (ret < 0)
         fatal_file(fd);
 
+    json_t* archs = NULL;
+
+    if (options.print_archs)
+        archs = json_array();
+
     if (magic == FAT_CIGAM) {
         /* Find the architecture we want.. */
         uint32_t nfat_arch;
@@ -1272,6 +1285,18 @@ int main(int argc, char *argv[]) {
             context.arch.cputype = ntohl(context.arch.cputype);
             context.arch.cpusubtype = ntohl(context.arch.cpusubtype);
             context.arch.offset = ntohl(context.arch.offset);
+
+            if (options.print_archs) {
+                for (j = 0; j < NUMOF(arch_str_to_type); j++) {
+                    if (context.arch.cputype == arch_str_to_type[j].type &&
+                        context.arch.cpusubtype == arch_str_to_type[j].subtype) {
+                        json_array_append(archs, json_string(arch_str_to_type[j].name));
+                        break;
+                    }
+                }
+
+                continue;
+            }
 
             if ((context.arch.cputype == options.cpu_type) &&
                 (context.arch.cpusubtype == options.cpu_subtype)) {
@@ -1296,7 +1321,14 @@ int main(int argc, char *argv[]) {
             }
         }
     } else {
+        if (options.print_archs)
+            json_array_append(archs, json_string("none"));
         found = 1;
+    }
+
+    if (options.print_archs) {
+        printf("%s\n", json_dumps(archs, JSON_INDENT(2)));
+        return 0;
     }
 
     if (!found)
