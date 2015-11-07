@@ -688,7 +688,17 @@ void print_all_symbols() {
         current++;
     }
 
-    printf("%s\n", json_dumps(array, JSON_INDENT(2)));
+    json_t* object = json_object();
+
+    json_object_set(object, "addresses", array);
+    char uuid[UUID_LEN * 2 + 1];
+    for (i = 0; i < UUID_LEN; i++) {
+       sprintf(&uuid[i*2], "%.02x", context.uuid[i]);
+    }
+    uuid[UUID_LEN * 2] = '\0';
+    json_object_set(object, "uuid", json_string(uuid));
+
+    printf("%s\n", json_dumps(object, JSON_INDENT(2)));
 }
 
 int parse_command(
