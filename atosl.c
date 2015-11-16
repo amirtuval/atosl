@@ -703,6 +703,9 @@ void print_all_symbols() {
     uuid[UUID_LEN * 2] = '\0';
     json_object_set(object, "uuid", json_string(uuid));
 
+    json_object_set(object, "base_address", json_integer(context.intended_addr));
+    json_object_set(object, "linkedit_address", json_integer(context.linkedit_addr));
+
     printf("%s\n", json_dumps(object, JSON_INDENT(2)));
 }
 
